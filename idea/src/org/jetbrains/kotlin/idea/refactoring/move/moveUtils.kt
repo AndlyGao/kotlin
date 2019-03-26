@@ -125,11 +125,10 @@ fun KtElement.processInternalReferencesToUpdateOnPackageNameChange(
         val declaration by lazy {
             var result = DescriptorToSourceUtilsIde.getAnyDeclaration(project, descriptor) ?: return@lazy null
 
-            if (descriptor.isCompanionObject()
-                && bindingContext[BindingContext.SHORT_REFERENCE_TO_COMPANION_OBJECT, refExpr] != null
+            if (descriptor.isCompanionObject() &&
+                bindingContext[BindingContext.SHORT_REFERENCE_TO_COMPANION_OBJECT, refExpr] !== null
             ) {
-                if (result !is KtObjectDeclaration) return@lazy null
-                result = result.containingClassOrObject ?: result
+                result = (result as? KtObjectDeclaration)?.containingClassOrObject ?: result
             }
 
             result
@@ -148,10 +147,13 @@ fun KtElement.processInternalReferencesToUpdateOnPackageNameChange(
             }
 
             if (!isExtension) {
-                if (!(containingDescriptor is PackageFragmentDescriptor
-                            || containingDescriptor is ClassDescriptor && containingDescriptor.kind == ClassKind.OBJECT
-                            || descriptor is JavaCallableMemberDescriptor && ((declaration as? PsiMember)?.hasModifierProperty(PsiModifier.STATIC) == true))
-                ) return null
+                val isCompatibleDescriptor = when (containingDescriptor) {
+                    is PackageFragmentDescriptor -> true
+                    is ClassDescriptor -> containingDescriptor.kind == ClassKind.OBJECT
+                    else -> descriptor is JavaCallableMemberDescriptor &&
+                            (declaration as? PsiMember)?.hasModifierProperty(PsiModifier.STATIC) == true
+                }
+                if (!isCompatibleDescriptor) return null
             }
         }
 
@@ -387,12 +389,11 @@ private fun isCallableReference(reference: PsiReference): Boolean {
 
 fun guessNewFileName(declarationsToMove: Collection<KtNamedDeclaration>): String? {
     if (declarationsToMove.isEmpty()) return null
-
     val representative = declarationsToMove.singleOrNull()
         ?: declarationsToMove.filterIsInstance<KtClassOrObject>().singleOrNull()
-    representative?.let { return "${it.name}.${KotlinFileType.EXTENSION}" }
-
-    return declarationsToMove.first().containingFile.name
+    val newFileName = representative?.run { "$name.${KotlinFileType.EXTENSION}" }
+        ?: declarationsToMove.first().containingFile.name
+    return newFileName.capitalize()
 }
 
 // returns true if successful
