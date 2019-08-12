@@ -62,7 +62,9 @@ internal class PropertyReferenceLowering(val context: JvmBackendContext) : Class
         get() = "${JvmAbi.getterName(name.asString())}()${context.state.typeMapper.mapReturnType(descriptor)}"
 
     private val IrMemberAccessExpression.signature: String
-        get() = getter?.let { getter -> localPropertyIndices[getter]?.let { "<v#$it>" } } ?: getter?.owner?.signature ?: field!!.owner.signature
+        get() = getter?.let { getter ->
+            localPropertyIndices[getter]?.let { "<v#$it>" }
+        } ?: getter?.owner?.signature ?: field!!.owner.signature
 
     private val IrMemberAccessExpression.symbol: IrSymbol
         get() = getter?.owner?.symbol ?: field!!.owner.symbol
