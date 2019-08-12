@@ -12,7 +12,6 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.ide.highlighter.ModuleFileType
-import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.idea.IdeaTestApplication
 import com.intellij.lang.ExternalAnnotatorsFilter
@@ -26,6 +25,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode
+import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -35,6 +35,7 @@ import com.intellij.openapi.module.ModuleTypeId
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.project.impl.ProjectImpl
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
@@ -53,6 +54,8 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.impl.search.IndexPatternBuilder
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.xml.XmlFileNSInfoProvider
 import com.intellij.testFramework.*
 import com.intellij.testFramework.fixtures.EditorTestFixture
@@ -112,7 +115,7 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
     }
 
     protected fun warmUpProject(stats: Stats) {
-        val project = innerPerfOpenProject("helloKotlin", stats, "warm-up")
+        val project = perfOpenHelloWorld(stats, "warm-up")
         try {
             val perfHighlightFile = perfHighlightFile(project, "src/HelloMain.kt", stats, "warm-up")
             assertTrue("kotlin project has been not imported properly", perfHighlightFile.isNotEmpty())
@@ -122,6 +125,7 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
     }
 
     override fun tearDown() {
+        commitAllDocuments()
         RunAll(
             ThrowableRunnable { super.tearDown() },
             ThrowableRunnable {
@@ -140,36 +144,42 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         return if (lastIndexOf >= 0) fileName.substring(lastIndexOf + 1) else fileName
     }
 
-    protected fun perfOpenKotlinProject(stats: Stats) =
-        perfOpenProject("perfTestProject", stats = stats, path = "..")
+    protected fun perfOpenKotlinProjectFast(stats: Stats) =
+        perfOpenKotlinProject(stats, fast = true)
 
-    protected fun perfOpenProject(name: String, stats: Stats, path: String = "idea/testData/perfTest") {
-        myProject = innerPerfOpenProject(name, stats, path = path, note = "")
+    protected fun perfOpenKotlinProject(stats: Stats, fast: Boolean = false) {
+        myProject = innerPerfOpenProject("kotlin", stats = stats, path = "../perfTestProject", note = "", fast = fast)
     }
+
+    protected fun perfOpenHelloWorld(stats: Stats, note: String = ""): Project =
+        innerPerfOpenProject("helloKotlin", stats, note, path = "idea/testData/perfTest/helloKotlin", simpleModule = true)
 
     protected fun innerPerfOpenProject(
         name: String,
         stats: Stats,
         note: String,
-        path: String = "idea/testData/perfTest"
+        path: String,
+        simpleModule: Boolean = false,
+        fast: Boolean = false
     ): Project {
-        val projectPath = File("$path/$name").canonicalPath
+        val projectPath = File("$path").canonicalPath
 
-        val warmUpIterations = 1
-        val iterations = 3
+        val warmUpIterations = if (fast) 0 else 1
+        val iterations = if (fast) 1 else 3
         val projectManagerEx = ProjectManagerEx.getInstanceEx()
 
         var lastProject: Project? = null
         var counter = 0
 
-        stats.perfTest<Unit, Pair<Project, Boolean>>(
+        stats.perfTest<Unit, Project>(
             warmUpIterations = warmUpIterations,
             iterations = iterations,
             testName = "open project${if (note.isNotEmpty()) " $note" else ""}",
             test = {
-                val projectPathExists = Paths.get(projectPath, ".idea").exists()
-                val project = if (projectPathExists) {
-                    val project = ProjectUtil.openProject(projectPath, null, false)!!
+                val project = if (!simpleModule) {
+                    val project = projectManagerEx.loadProject(name, path)
+                    assertNotNull(project)
+                    //projectManagerEx.openTestProject(project!!)
                     project
                 } else {
                     val project = projectManagerEx.loadAndOpenProject(projectPath)!!
@@ -182,8 +192,6 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                     FileEditorManagerImpl::class.java
                 )
 
-                projectManagerEx.openTestProject(project)
-
                 dispatchAllInvocationEvents()
 
                 with(StartupManager.getInstance(project) as StartupManagerImpl) {
@@ -195,25 +203,14 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                     waitUntilRefreshed()
                 }
 
-                it.value = Pair(project, projectPathExists)
+                it.value = project
             },
             tearDown = {
-                it.value?.let { pair ->
-                    val project = pair.first
+                it.value?.let { project ->
 
-                    // import gradle project if `$project/.idea` is present but modules are not imported
-                    // it is a temporary dirty hack as it is fixed in latest IC:
-                    // ProjectUtil.openProject picks up gradle import via extension point
-                    if (pair.second && ModuleManager.getInstance(project).modules.isEmpty()) {
-                        try {
-                            openGradleProject(projectPath, project)
-                        } catch (e: Throwable) {
-                            // TODO: [VD] have to handle it more accurate
-                            e.printStackTrace();
-                        }
+                    runAndMeasure("refresh gradle project $name") {
+                        refreshGradleProjectIfNeeded(projectPath, project)
                     }
-
-                    refreshGradleProject(project)
 
                     ApplicationManager.getApplication().executeOnPooledThread {
                         DumbService.getInstance(project).waitForSmartMode()
@@ -230,6 +227,12 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
 
                     lastProject = project
                     VirtualFileManager.getInstance().syncRefresh()
+
+                    runWriteAction {
+                        project.save()
+                    }
+
+                    println("# project '$name' successfully opened")
 
                     // close all project but last - we're going to return and use it further
                     if (counter < warmUpIterations + iterations - 1) {
@@ -276,16 +279,29 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         }
     }
 
-    fun refreshGradleProject(project: Project) {
+    private fun refreshGradleProjectIfNeeded(projectPath: String, project: Project) {
+        if (listOf("build.gradle.kts", "build.gradle").map { name -> Paths.get(projectPath, name).exists() }.find { e -> e } != true) return
+
+        ExternalProjectsManagerImpl.getInstance(project).setStoreExternally(false)
+
+        GradleProjectOpenProcessor.openGradleProject(project, null, Paths.get(projectPath))
+
         ExternalSystemUtil.refreshProjects(
             ImportSpecBuilder(project, GradleConstants.SYSTEM_ID)
-                .forceWhenUptodate(true)
+                .forceWhenUptodate()
+                .useDefaultCallback()
                 .use(ProgressExecutionMode.MODAL_SYNC)
         )
+
         dispatchAllInvocationEvents()
-        runInEdtAndWait {
-            PlatformTestUtil.saveProject(project)
-        }
+        ExternalProjectsManagerImpl.getInstance(project).setStoreExternally(false)
+        dispatchAllInvocationEvents()
+
+        // WARNING: [VD] DO NOT SAVE PROJECT AS IT COULD PERSIST WRONG MODULES INFO
+
+//        runInEdtAndWait {
+//            PlatformTestUtil.saveProject(project)
+//        }
     }
 
     /**
@@ -382,11 +398,13 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                 val fixture = EditorTestFixture(project, editor, virtualFile)
                 val initialText = editor.document.text
                 if (isAKotlinScriptFile(fileName)) {
-                    ScriptDependenciesManager.updateScriptDependenciesSynchronously(virtualFile, project)
+                    runAndMeasure("update script dependencies for $fileName") {
+                        ScriptDependenciesManager.updateScriptDependenciesSynchronously(virtualFile, project)
+                    }
                 }
 
                 val tasksIdx = fileInEditor.document.text.indexOf(marker)
-                assertTrue(tasksIdx > 0)
+                assertTrue("marker '$marker' not found in $fileName", tasksIdx > 0)
                 if (typeAfterMarker) {
                     editor.caretModel.moveToOffset(tasksIdx + marker.length + 1)
                 } else {
@@ -426,16 +444,20 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
                         val file = pair.second.psiFile
                         val text = pair.first
 
-                        if (revertChangesAtTheEnd) {
-                            runWriteAction {
-                                // TODO: [VD] revert ?
-                                //editorFixture.performEditorAction(IdeActions.SELECTED_CHANGES_ROLLBACK)
-                                document.setText(text)
-                                commitDocument(project, document)
+                        try {
+                            if (revertChangesAtTheEnd) {
+                                runWriteAction {
+                                    // TODO: [VD] revert ?
+                                    //editorFixture.performEditorAction(IdeActions.SELECTED_CHANGES_ROLLBACK)
+                                    document.setText(text)
+                                    saveDocument(document)
+                                    commitDocument(project, document)
+                                }
+                                dispatchAllInvocationEvents()
                             }
-                            dispatchAllInvocationEvents()
+                        } finally {
+                            cleanupCaches(project, file.virtualFile)
                         }
-                        cleanupCaches(project, file.virtualFile)
                     }
                     commitAllDocuments()
                 }
@@ -611,11 +633,35 @@ abstract class AbstractPerformanceProjectsTest : UsefulTestCase() {
         return EditorFile(psiFile = psiFile, document = document)
     }
 
+    private fun baseName(name: String): String {
+        val index = name.lastIndexOf("/")
+        return if (index > 0) name.substring(index + 1) else name
+    }
+
     private fun projectFileByName(project: Project, name: String): PsiFile {
         val fileManager = VirtualFileManager.getInstance()
-        val url = "file://${File("${project.basePath}/$name").absolutePath}"
+        val url = "${project.guessProjectDir()}/$name"
         val virtualFile = fileManager.refreshAndFindFileByUrl(url)
-        return virtualFile!!.toPsiFile(project)!!
+        if (virtualFile != null) {
+            return virtualFile!!.toPsiFile(project)!!
+        }
+
+        val baseFileName = baseName(name)
+        val projectBaseName = baseName(project.name)
+
+        val virtualFiles = FilenameIndex.getVirtualFilesByName(
+            project,
+            baseFileName, true,
+            GlobalSearchScope.projectScope(project)
+        )
+            .filter { it.canonicalPath?.contains("/$projectBaseName/$name") ?: false }.toList()
+
+        assertEquals(
+            "expected the only file with name '$name'\n, it were: [${virtualFiles.map { it.canonicalPath }.joinToString("\n")}]",
+            1,
+            virtualFiles.size
+        )
+        return virtualFiles.iterator().next().toPsiFile(project)!!
     }
 
     data class FixtureEditorFile(val psiFile: PsiFile, val document: Document, val fixture: EditorTestFixture)
