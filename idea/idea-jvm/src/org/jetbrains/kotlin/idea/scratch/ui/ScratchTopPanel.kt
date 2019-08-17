@@ -26,7 +26,6 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModuleType
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.vcs.changes.committed.LabeledComboBoxAction
-import com.intellij.util.messages.Topic
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.idea.caches.project.productionSourceInfo
 import org.jetbrains.kotlin.idea.caches.project.testSourceInfo
@@ -195,13 +194,5 @@ class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
                 scratchFile.setModule(module)
             }
         }
-    }
-}
-
-interface ScratchPanelListener {
-    fun panelAdded(panel: ScratchTopPanel)
-
-    companion object {
-        val TOPIC = Topic.create("ScratchPanelListener", ScratchPanelListener::class.java)
     }
 }
