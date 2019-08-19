@@ -837,8 +837,17 @@ public abstract class CodegenTestCase extends KtUsefulTestCase {
         callBoxMethodAndCheckResult(classLoader, aClass, method);
     }
 
-    protected void callBoxMethodAndCheckResult(URLClassLoader classLoader, Class<?> aClass, Method method)
+    private void callBoxMethodAndCheckResult(URLClassLoader classLoader, Class<?> aClass, Method method)
             throws IOException, IllegalAccessException, InvocationTargetException {
+        callBoxMethodAndCheckResult(classLoader, aClass, method, false);
+    }
+
+    protected void callBoxMethodAndCheckResult(
+            URLClassLoader classLoader,
+            Class<?> aClass,
+            Method method,
+            boolean unexpectedBehaviour
+    ) throws IOException, IllegalAccessException, InvocationTargetException {
         String result;
         if (BOX_IN_SEPARATE_PROCESS_PORT != null) {
             result = invokeBoxInSeparateProcess(classLoader, aClass);
@@ -858,7 +867,11 @@ public abstract class CodegenTestCase extends KtUsefulTestCase {
                 }
             }
         }
-        assertEquals("OK", result);
+        if (unexpectedBehaviour) {
+            assertNotSame("OK", result);
+        } else {
+            assertEquals("OK", result);
+        }
     }
 
     @NotNull
