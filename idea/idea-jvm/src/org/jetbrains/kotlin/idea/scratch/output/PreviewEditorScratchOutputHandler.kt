@@ -32,12 +32,17 @@ class PreviewEditorScratchOutputHandler(private val previewTextEditor: TextEdito
     private val toolwindowHandler: ScratchOutputHandler = getToolwindowHandler(previewTextEditor)
     private val previewOutputBlocksManager: PreviewOutputBlocksManager = PreviewOutputBlocksManager(previewTextEditor.editor)
 
+    /**
+     * Returns pairs of line numbers which should be on the same visual positions during scrolling.
+     */
+    val sourceToPreviewAlignments: Sequence<Pair<Int, Int>> get() = previewOutputBlocksManager.alignments
+
     override fun onStart(file: ScratchFile) {
         toolwindowHandler.onStart(file)
     }
 
     override fun handle(file: ScratchFile, expression: ScratchExpression, output: ScratchOutput) {
-        printToPreviewEditor(file, expression, output)
+        printToPreviewEditor(expression, output)
     }
 
     override fun error(file: ScratchFile, message: String) {
@@ -56,7 +61,7 @@ class PreviewEditorScratchOutputHandler(private val previewTextEditor: TextEdito
         clearPreviewEditor()
     }
 
-    private fun printToPreviewEditor(file: ScratchFile, expression: ScratchExpression, output: ScratchOutput) {
+    private fun printToPreviewEditor(expression: ScratchExpression, output: ScratchOutput) {
         TransactionGuard.submitTransaction(previewTextEditor, Runnable {
             val targetCell = previewOutputBlocksManager.getBlock(expression) ?: previewOutputBlocksManager.addBlockToTheEnd(expression)
             targetCell.addOutput(output)
@@ -83,7 +88,7 @@ class PreviewOutputBlocksManager(editor: Editor) {
 
     val blocks: NavigableMap<ScratchExpression, OutputBlock> = TreeMap(Comparator.comparingInt { it.lineStart })
 
-    val alignments: List<Pair<Int, Int>> get() = blocks.values.map { it.sourceExpression.lineStart to it.lineStart }
+    val alignments: Sequence<Pair<Int, Int>> get() = blocks.values.asSequence().map { it.sourceExpression.lineStart to it.lineStart }
 
     fun getBlock(expression: ScratchExpression): OutputBlock? = blocks[expression]
 
