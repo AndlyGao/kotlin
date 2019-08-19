@@ -5,12 +5,16 @@
 
 package org.jetbrains.kotlin.idea.scratch
 
+import com.intellij.codeInsight.daemon.LineMarkerInfo
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.ide.scratch.ScratchFileService
 import com.intellij.ide.scratch.ScratchRootType
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.ExpectedHighlightingData
+import com.intellij.testFramework.FileEditorManagerTestCase
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.codeInsight.AbstractLineMarkersTest
 import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesManager
@@ -19,7 +23,7 @@ import org.jetbrains.kotlin.idea.util.application.runWriteAction
 import org.jetbrains.kotlin.psi.KtFile
 import java.io.File
 
-abstract class AbstractScratchLineMarkersTest : AbstractLineMarkersTest() {
+abstract class AbstractScratchLineMarkersTest : FileEditorManagerTestCase() {
     fun doScratchTest(path: String) {
         val fileText = FileUtil.loadFile(File(path))
 
@@ -50,7 +54,7 @@ abstract class AbstractScratchLineMarkersTest : AbstractLineMarkersTest() {
 
         val markers = doAndCheckHighlighting(document, data, File(path))
 
-        assertNavigationElements(myFixture.project, myFixture.file as KtFile, markers)
+        AbstractLineMarkersTest.assertNavigationElements(myFixture.project, myFixture.file as KtFile, markers)
     }
 
     override fun tearDown() {
@@ -60,4 +64,26 @@ abstract class AbstractScratchLineMarkersTest : AbstractLineMarkersTest() {
             runWriteAction { file.delete(this) }
         }
     }
+
+    /**
+     * This function is copy-pasted [AbstractLineMarkersTest.doAndCheckHighlighting].
+     */
+    private fun doAndCheckHighlighting(
+        documentToAnalyze: Document, expectedHighlighting: ExpectedHighlightingData, expectedFile: File
+    ): List<LineMarkerInfo<*>> {
+        myFixture.doHighlighting()
+
+        val markers = DaemonCodeAnalyzerImpl.getLineMarkers(documentToAnalyze, myFixture.project)
+
+        expectedHighlighting.checkLineMarkers(markers, documentToAnalyze.text)
+
+        // This is a workaround for sad bug in ExpectedHighlightingData:
+        // the latter doesn't throw assertion error when some line markers are expected, but none are present.
+        if (FileUtil.loadFile(expectedFile).contains("<lineMarker") && markers.isEmpty()) {
+            throw AssertionError("Some line markers are expected, but nothing is present at all")
+        }
+
+        return markers
+    }
+
 }
