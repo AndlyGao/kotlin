@@ -43,7 +43,7 @@ class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
         scratchFile.compilingScratchExecutor?.stop()
     }
 
-    private val moduleChooserAction: ModulesComboBoxAction = ModulesComboBoxAction()
+    private val moduleChooserAction: ModulesComboBoxAction = ModulesComboBoxAction(scratchFile)
     private val actionsToolbar: ActionToolbar
 
     init {
@@ -84,24 +84,6 @@ class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
             }
         }
     }
-
-    @TestOnly
-    fun setReplMode(isSelected: Boolean) {
-        scratchFile.saveOptions { copy(isRepl = isSelected) }
-    }
-
-    @TestOnly
-    fun setMakeBeforeRun(isSelected: Boolean) {
-        scratchFile.saveOptions { copy(isMakeBeforeRun = isSelected) }
-    }
-
-    @TestOnly
-    fun setInteractiveMode(isSelected: Boolean) {
-        scratchFile.saveOptions { copy(isInteractiveMode = isSelected) }
-    }
-
-    @TestOnly
-    fun getModuleSelectorAction(): AnAction = moduleChooserAction
 
     private fun updateToolbar() {
         ApplicationManager.getApplication().invokeLater {
@@ -151,48 +133,51 @@ class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
             }
         }
     }
+}
 
-    private inner class ModulesComboBoxAction : LabeledComboBoxAction("Use classpath of module") {
-        override fun createPopupActionGroup(button: JComponent?): DefaultActionGroup =
-            throw UnsupportedOperationException("Should not be called!")
+class ModulesComboBoxAction(val scratchFile: ScratchFile) : LabeledComboBoxAction("Use classpath of module") {
+    override fun createPopupActionGroup(button: JComponent?): DefaultActionGroup =
+        throw UnsupportedOperationException("Should not be called!")
 
-        override fun createPopupActionGroup(button: JComponent, dataContext: DataContext): DefaultActionGroup {
-            val actionGroup = DefaultActionGroup()
-            actionGroup.add(ModuleIsNotSelectedAction(ConfigurationModuleSelector.NO_MODULE_TEXT))
+    override fun createPopupActionGroup(button: JComponent, dataContext: DataContext): DefaultActionGroup {
+        val actionGroup = DefaultActionGroup()
+        actionGroup.add(ModuleIsNotSelectedAction(ConfigurationModuleSelector.NO_MODULE_TEXT))
 
-            val modules = ModuleManager.getInstance(scratchFile.project).modules.filter {
-                it.productionSourceInfo() != null || it.testSourceInfo() != null
-            }
-
-            actionGroup.addAll(modules.map { SelectModuleAction(it) })
-
-            return actionGroup
+        val modules = ModuleManager.getInstance(scratchFile.project).modules.filter {
+            it.productionSourceInfo() != null || it.testSourceInfo() != null
         }
 
-        override fun update(e: AnActionEvent) {
-            super.update(e)
-            val selectedModule = scratchFile.module
+        actionGroup.addAll(modules.map { SelectModuleAction(it) })
 
-            e.presentation.apply {
-                icon = selectedModule?.let { ModuleType.get(it).icon }
-                text = selectedModule?.name ?: ConfigurationModuleSelector.NO_MODULE_TEXT
-            }
+        return actionGroup
+    }
 
-            val isWorksheetFile = scratchFile.getPsiFile()?.virtualFile?.isKotlinWorksheet == true
-            e.presentation.isVisible = !isWorksheetFile
+    override fun update(e: AnActionEvent) {
+        super.update(e)
+        val selectedModule = scratchFile.module
+
+        e.presentation.apply {
+            icon = selectedModule?.let { ModuleType.get(it).icon }
+            text = selectedModule?.name ?: ConfigurationModuleSelector.NO_MODULE_TEXT
         }
 
-        private inner class ModuleIsNotSelectedAction(placeholder: String) : DumbAwareAction(placeholder) {
-            override fun actionPerformed(e: AnActionEvent) {
-                scratchFile.setModule(null)
-            }
-        }
+        e.presentation.isVisible = isModuleSelectorVisible()
+    }
 
-        private inner class SelectModuleAction(private val module: Module) :
-            DumbAwareAction(module.name, null, ModuleType.get(module).icon) {
-            override fun actionPerformed(e: AnActionEvent) {
-                scratchFile.setModule(module)
-            }
+    @TestOnly
+    fun isModuleSelectorVisible() = !scratchFile.file.isKotlinWorksheet
+
+    private inner class ModuleIsNotSelectedAction(placeholder: String) : DumbAwareAction(placeholder) {
+        override fun actionPerformed(e: AnActionEvent) {
+            scratchFile.setModule(null)
+        }
+    }
+
+    private inner class SelectModuleAction(private val module: Module) :
+        DumbAwareAction(module.name, null, ModuleType.get(module).icon) {
+        override fun actionPerformed(e: AnActionEvent) {
+            scratchFile.setModule(module)
         }
     }
 }
+
