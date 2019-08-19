@@ -25,8 +25,7 @@ import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiManager
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.idea.scratch.*
-import org.jetbrains.kotlin.idea.scratch.output.InlayScratchOutputHandler
-import org.jetbrains.kotlin.idea.scratch.output.ScratchOutputHandlerAdapter
+import org.jetbrains.kotlin.idea.scratch.output.*
 import org.jetbrains.kotlin.psi.UserDataProperty
 
 private const val KTS_SCRATCH_EDITOR_PROVIDER: String = "KtsScratchFileEditorProvider"
@@ -52,20 +51,28 @@ class KtsScratchFileEditorProvider : FileEditorProvider, DumbAware {
 
 class KtsScratchFileEditorWithPreview private constructor(
     val scratchFile: ScratchFile,
-    editor: TextEditor,
-    preview: TextEditor
-) : TextEditorWithPreview(editor, preview), TextEditor {
+    sourceTextEditor: TextEditor,
+    val previewTextEditor: TextEditor
+) : TextEditorWithPreview(sourceTextEditor, previewTextEditor), TextEditor {
 
-    private val inlayOutputHandler = InlayScratchOutputHandler(editor)
+    private val inlayScratchOutputHandler = InlayScratchOutputHandler(sourceTextEditor)
+    private val previewEditorScratchOutputHandler = PreviewEditorScratchOutputHandler(previewTextEditor)
+
+    private val commonPreviewOutputHandler = LayoutDependantOutputHandler(
+        inlayScratchOutputHandler,
+        previewEditorScratchOutputHandler,
+        ::getLayout
+    )
+
     private val scratchTopPanel = ScratchTopPanel(scratchFile)
 
     init {
-        editor.parentScratchEditorWithPreview = this
+        sourceTextEditor.parentScratchEditorWithPreview = this
 
-        scratchFile.compilingScratchExecutor?.addOutputHandler(inlayOutputHandler)
-        scratchFile.replScratchExecutor?.addOutputHandler(inlayOutputHandler)
+        scratchFile.compilingScratchExecutor?.addOutputHandler(commonPreviewOutputHandler)
+        scratchFile.replScratchExecutor?.addOutputHandler(commonPreviewOutputHandler)
 
-        ScratchFileAutoRunner.addListener(scratchFile.project, editor)
+        ScratchFileAutoRunner.addListener(scratchFile.project, sourceTextEditor)
     }
 
     override fun dispose() {
@@ -86,12 +93,23 @@ class KtsScratchFileEditorWithPreview private constructor(
         return myEditor.editor
     }
 
-    override fun createToolbar(): ActionToolbar? {
+    override fun createToolbar(): ActionToolbar {
         return scratchTopPanel.actionsToolbar
     }
 
     fun clearOutputHandlers() {
-        inlayOutputHandler.clear(scratchFile)
+        commonPreviewOutputHandler.clear(scratchFile)
+    }
+
+    override fun setLayout(newLayout: Layout) {
+        val previous = layout
+        super.setLayout(newLayout)
+        val current = layout
+
+        when {
+            previous == Layout.SHOW_EDITOR && current != Layout.SHOW_EDITOR -> clearOutputHandlers()
+            previous != Layout.SHOW_EDITOR && current == Layout.SHOW_EDITOR -> clearOutputHandlers()
+        }
     }
 
     @TestOnly
@@ -143,4 +161,43 @@ private fun setupCodeAnalyzerRestarterOutputHandler(project: Project, scratchFil
             }
         }
     })
+}
+
+/**
+ * Redirects output to [noPreviewOutputHandler] or [previewOutputHandler] depending on the result of [layoutProvider] call.
+ *
+ * However, clears both handlers to simplify clearing when switching between layouts.
+ */
+private class LayoutDependantOutputHandler(
+    private val noPreviewOutputHandler: ScratchOutputHandler,
+    private val previewOutputHandler: ScratchOutputHandler,
+    private val layoutProvider: () -> TextEditorWithPreview.Layout
+) : ScratchOutputHandler {
+
+    override fun onStart(file: ScratchFile) {
+        targetHandler.onStart(file)
+    }
+
+    override fun handle(file: ScratchFile, expression: ScratchExpression, output: ScratchOutput) {
+        targetHandler.handle(file, expression, output)
+    }
+
+    override fun error(file: ScratchFile, message: String) {
+        targetHandler.error(file, message)
+    }
+
+    override fun onFinish(file: ScratchFile) {
+        targetHandler.onFinish(file)
+    }
+
+    override fun clear(file: ScratchFile) {
+        noPreviewOutputHandler.clear(file)
+        previewOutputHandler.clear(file)
+    }
+
+    private val targetHandler
+        get() = when (layoutProvider()) {
+            TextEditorWithPreview.Layout.SHOW_EDITOR -> noPreviewOutputHandler
+            else -> previewOutputHandler
+        }
 }
