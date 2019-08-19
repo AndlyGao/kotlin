@@ -37,17 +37,11 @@ import org.jetbrains.kotlin.idea.scratch.isKotlinWorksheet
 import org.jetbrains.kotlin.idea.scratch.output.ScratchOutputHandlerAdapter
 import javax.swing.JComponent
 
-class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
-    override fun dispose() {
-        scratchFile.replScratchExecutor?.stop()
-        scratchFile.compilingScratchExecutor?.stop()
-    }
-
+class ScratchTopPanel(val scratchFile: ScratchFile) {
     private val moduleChooserAction: ModulesComboBoxAction = ModulesComboBoxAction(scratchFile)
-    private val actionsToolbar: ActionToolbar
+    val actionsToolbar: ActionToolbar
 
     init {
-        scratchFile.addModuleListener { _, _ -> updateToolbar() }
         setupTopPanelUpdateHandlers()
 
         val toolbarGroup = DefaultActionGroup().apply {
@@ -65,9 +59,9 @@ class ScratchTopPanel(val scratchFile: ScratchFile) : Disposable {
         actionsToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.EDITOR_TOOLBAR, toolbarGroup, true)
     }
 
-    val component: JComponent = actionsToolbar.component
-
     private fun setupTopPanelUpdateHandlers() {
+        scratchFile.addModuleListener { _, _ -> updateToolbar() }
+
         val toolbarHandler = createUpdateToolbarHandler()
         scratchFile.replScratchExecutor?.addOutputHandler(toolbarHandler)
         scratchFile.compilingScratchExecutor?.addOutputHandler(toolbarHandler)
