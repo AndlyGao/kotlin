@@ -31,7 +31,7 @@ class ScratchOptionsTest : AbstractScratchRunActionTest() {
         myManager.closeFile(myFixture.file.virtualFile)
         myManager.openFile(myFixture.file.virtualFile, true)
 
-        val scratchFileAfterClosingFile = getScratchFileFromEditorSelectedForFile(myManager, myFixture.file.virtualFile)
+        val scratchFileAfterClosingFile = getScratchEditorForSelectedFile(myManager, myFixture.file.virtualFile)?.scratchFile
             ?: error("Couldn't find scratch panel")
 
         Assert.assertEquals("Wrong value for isRepl checkbox", newIsReplValue, scratchFileAfterClosingFile.options.isRepl)

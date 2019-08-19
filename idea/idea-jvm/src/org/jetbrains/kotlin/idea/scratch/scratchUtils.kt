@@ -14,6 +14,7 @@ import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.kotlin.idea.actions.KOTLIN_WORKSHEET_EXTENSION
+import org.jetbrains.kotlin.idea.scratch.ui.KtsScratchFileEditorWithPreview
 import org.jetbrains.kotlin.idea.scratch.ui.findScratchFileEditorWithPreview
 
 internal val LOG = Logger.getInstance("#org.jetbrains.kotlin.idea.scratch")
@@ -27,9 +28,9 @@ val VirtualFile.isKotlinWorksheet: Boolean
 val VirtualFile.isKotlinScratch: Boolean
     get() = ScratchFileService.getInstance().getRootType(this) is ScratchRootType
 
-fun getScratchFileFromEditorSelectedForFile(fileManager: FileEditorManager, virtualFile: VirtualFile): ScratchFile? {
+fun getScratchEditorForSelectedFile(fileManager: FileEditorManager, virtualFile: VirtualFile): KtsScratchFileEditorWithPreview? {
     val editor = fileManager.getSelectedEditor(virtualFile) as? TextEditor ?: return null
-    return editor.getScratchFile()
+    return editor.findScratchFileEditorWithPreview()
 }
 
 fun getScratchFileFromSelectedEditor(project: Project): ScratchFile? {

@@ -72,6 +72,6 @@ class ScratchFileAutoRunner(private val project: Project) : DocumentListener {
     }
 
     private fun getScratchFile(file: VirtualFile, project: Project): ScratchFile? {
-        return getScratchFileFromEditorSelectedForFile(FileEditorManager.getInstance(project), file)
+        return getScratchEditorForSelectedFile(FileEditorManager.getInstance(project), file)?.scratchFile
     }
 }
